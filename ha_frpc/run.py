@@ -170,6 +170,13 @@ def delete_line_in_file(filepath, pattern):
         f.writelines(new_lines)
 
 
+def delete_line_in_file_content(content, pattern):
+    """Delete lines containing pattern from content string."""
+    lines = content.split('\n')
+    new_lines = [line for line in lines if pattern not in line]
+    return '\n'.join(new_lines)
+
+
 def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
     """
     Generate proxy configuration from template.
@@ -190,19 +197,8 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
     bashio_instance.config.require(f'proxies/{proxy_index}/name')
     proxy_type = bashio_instance.config(f'proxies/{proxy_index}/type', '').lower()
 
-    # For HTTP/HTTPS proxies, remotePort is not used (use customDomains/subdomain instead)
-    # For TCP/UDP proxies, remotePort is required
-    # Remove remotePort line BEFORE replacing placeholders for HTTP/HTTPS proxies
-    if proxy_type in ('http', 'https'):
-        lines = proxy_content.split('\n')
-        new_lines = [line for line in lines if 'remotePort' not in line]
-        proxy_content = '\n'.join(new_lines)
-
+    # Replace basic placeholders
     proxy_keys = ['name', 'type', 'localIP', 'localPort', 'useEncryption', 'useCompression']
-    if proxy_type not in ('http', 'https'):
-        proxy_keys.append('remotePort')
-
-    # Replace placeholders
     for key in proxy_keys:
         val = bashio_instance.config(f'proxies/{proxy_index}/{key}')
         placeholder = f'__{key.upper()}__'
@@ -213,15 +209,42 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
             val_str = str(val)
         proxy_content = proxy_content.replace(placeholder, val_str)
 
-    # Custom domains (optional)
-    domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
-    if domain:
-        proxy_content = proxy_content.replace('__CUSTOMDOMAINS__', f'"{domain}"')
+    # Handle remotePort: required for TCP/UDP, not allowed for HTTP/HTTPS
+    if proxy_type in ('http', 'https'):
+        # Remove remotePort line for HTTP/HTTPS proxies
+        proxy_content = delete_line_in_file_content(proxy_content, '__REMOTEPORT_LINE__')
     else:
-        # Remove customDomains line if not specified
-        lines = proxy_content.split('\n')
-        new_lines = [line for line in lines if '__CUSTOMDOMAINS__' not in line]
-        proxy_content = '\n'.join(new_lines)
+        # Add remotePort for TCP/UDP proxies
+        remote_port = bashio_instance.config(f'proxies/{proxy_index}/remotePort')
+        if remote_port:
+            proxy_content = proxy_content.replace('__REMOTEPORT_LINE__', f'remotePort = {remote_port}')
+        else:
+            proxy_content = delete_line_in_file_content(proxy_content, '__REMOTEPORT_LINE__')
+
+    # Handle subdomain and customDomains for HTTP/HTTPS proxies
+    if proxy_type in ('http', 'https'):
+        # For HTTP/HTTPS, need either subdomain or customDomains
+        subdomain = bashio_instance.config(f'proxies/{proxy_index}/subdomain')
+        domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
+
+        # Ensure at least one is set - use proxy name as subdomain fallback
+        if not subdomain and not domain:
+            proxy_name = bashio_instance.config(f'proxies/{proxy_index}/name')
+            subdomain = proxy_name
+
+        if subdomain:
+            proxy_content = proxy_content.replace('__SUBDOMAIN_LINE__', f'subdomain = "{subdomain}"')
+        else:
+            proxy_content = delete_line_in_file_content(proxy_content, '__SUBDOMAIN_LINE__')
+
+        if domain:
+            proxy_content = proxy_content.replace('__CUSTOMDOMAINS_LINE__', f'customDomains = ["{domain}"]')
+        else:
+            proxy_content = delete_line_in_file_content(proxy_content, '__CUSTOMDOMAINS_LINE__')
+    else:
+        # Remove subdomain and customDomains lines for TCP/UDP proxies
+        proxy_content = delete_line_in_file_content(proxy_content, '__SUBDOMAIN_LINE__')
+        proxy_content = delete_line_in_file_content(proxy_content, '__CUSTOMDOMAINS_LINE__')
 
     return proxy_content
 
