@@ -46,6 +46,11 @@ class MockBashio:
             else:
                 return self._config.get(key)
 
+        def _get_value(self, key, default=None):
+            """Get value from config (compatible with ConfigReader._get_value)."""
+            val = self._get_nested_value(key)
+            return val if val is not None else default
+
         def require(self, key):
             val = self._get_nested_value(key)
             if val is None or val == '' or val == []:
@@ -174,7 +179,6 @@ def test_proxy_config_with_custom_domains(template_path, temp_config_file):
                 'type': 'https',
                 'localIP': '192.168.2.65',
                 'localPort': 8123,  # Integer type
-                'remotePort': 8123,  # Integer type
                 'useEncryption': True,  # Boolean type
                 'useCompression': True,  # Boolean type
                 'customDomains': ['fvl.atyx.ru'],
@@ -198,6 +202,8 @@ def test_proxy_config_with_custom_domains(template_path, temp_config_file):
     assert 'localIP = "192.168.2.65"' in config_content
     assert 'localPort = 8123' in config_content
     assert 'customDomains = ["fvl.atyx.ru"]' in config_content
+    # For HTTPS proxy, remotePort should NOT be present
+    assert 'remotePort' not in config_content
 
     # Verify the exact proxy section format
     lines = config_content.split('\n')
@@ -220,6 +226,7 @@ def test_proxy_config_with_custom_domains(template_path, temp_config_file):
     assert 'localIP = "192.168.2.65"' in proxy_content
     assert 'localPort = 8123' in proxy_content
     assert 'customDomains = ["fvl.atyx.ru"]' in proxy_content
+    assert 'remotePort' not in proxy_content
 
 
 def test_type_conversion(temp_config_file):
@@ -230,13 +237,11 @@ def test_type_conversion(temp_config_file):
     with open(temp_config_file, 'w') as f:
         f.write('serverAddr = __SERVERADDR__\n')
         f.write('serverPort = __SERVERPORT__\n')
-        f.write('tlsEnable = __TLSENABLE__\n')
 
     # Test integer conversion
     replace_in_file(temp_config_file, '__SERVERPORT__', 7000)
 
-    # Test boolean conversion
-    replace_in_file(temp_config_file, '__TLSENABLE__', True)
+    # Test string conversion
     replace_in_file(temp_config_file, '__SERVERADDR__', 'example.com')
 
     # Read result
@@ -245,7 +250,6 @@ def test_type_conversion(temp_config_file):
 
     # Verify conversions
     assert 'serverPort = 7000' in content
-    assert 'tlsEnable = True' in content
     assert 'serverAddr = example.com' in content
 
 
@@ -294,3 +298,104 @@ def test_proxy_config_type_conversion(template_path, temp_config_file):
     assert 'useEncryption = True' not in config_content
     assert 'useCompression = False' not in config_content
     assert 'useCompression = True' not in config_content
+
+    # Verify tlsEnable is not in config (removed from template)
+    assert 'tlsEnable' not in config_content
+
+
+def test_https_proxy_without_custom_domains_uses_subdomain(template_path, temp_config_file):
+    """Test that HTTPS proxy without customDomains uses proxy name as subdomain."""
+    config_dict = {
+        'serverAddr': 'example.com',
+        'serverPort': 7000,
+        'authMethod': 'token',
+        'authToken': 'test-token',
+        'tlsEnable': False,
+        'proxies': [
+            {
+                'name': 'web',
+                'type': 'https',
+                'localIP': '127.0.0.1',
+                'localPort': 8123,
+                'useEncryption': False,
+                'useCompression': False,
+            }
+        ],
+    }
+
+    mock_bashio = MockBashio(config_dict)
+    generate_config(str(template_path), temp_config_file, mock_bashio)
+
+    with open(temp_config_file, 'r') as f:
+        config_content = f.read()
+
+    # Should have subdomain = "web" (proxy name) as fallback
+    assert 'subdomain = "web"' in config_content
+    # Should not have remotePort for HTTPS proxy
+    assert 'remotePort' not in config_content
+    # Should not have customDomains if not specified
+    assert 'customDomains' not in config_content
+
+
+def test_https_proxy_with_subdomain(template_path, temp_config_file):
+    """Test HTTPS proxy with explicit subdomain."""
+    config_dict = {
+        'serverAddr': 'example.com',
+        'serverPort': 7000,
+        'authMethod': 'token',
+        'authToken': 'test-token',
+        'tlsEnable': False,
+        'proxies': [
+            {
+                'name': 'web',
+                'type': 'https',
+                'localIP': '127.0.0.1',
+                'localPort': 8123,
+                'subdomain': 'homeassistant',
+                'useEncryption': False,
+                'useCompression': False,
+            }
+        ],
+    }
+
+    mock_bashio = MockBashio(config_dict)
+    generate_config(str(template_path), temp_config_file, mock_bashio)
+
+    with open(temp_config_file, 'r') as f:
+        config_content = f.read()
+
+    assert 'subdomain = "homeassistant"' in config_content
+    assert 'remotePort' not in config_content
+
+
+def test_http_proxy_with_both_subdomain_and_custom_domains(template_path, temp_config_file):
+    """Test HTTP proxy with both subdomain and customDomains."""
+    config_dict = {
+        'serverAddr': 'example.com',
+        'serverPort': 7000,
+        'authMethod': 'token',
+        'authToken': 'test-token',
+        'tlsEnable': False,
+        'proxies': [
+            {
+                'name': 'web',
+                'type': 'http',
+                'localIP': '127.0.0.1',
+                'localPort': 8123,
+                'subdomain': 'home',
+                'customDomains': ['home.example.com'],
+                'useEncryption': False,
+                'useCompression': False,
+            }
+        ],
+    }
+
+    mock_bashio = MockBashio(config_dict)
+    generate_config(str(template_path), temp_config_file, mock_bashio)
+
+    with open(temp_config_file, 'r') as f:
+        config_content = f.read()
+
+    assert 'subdomain = "home"' in config_content
+    assert 'customDomains = ["home.example.com"]' in config_content
+    assert 'remotePort' not in config_content

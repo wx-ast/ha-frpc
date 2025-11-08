@@ -225,7 +225,20 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
     if proxy_type in ('http', 'https'):
         # For HTTP/HTTPS, need either subdomain or customDomains
         subdomain = bashio_instance.config(f'proxies/{proxy_index}/subdomain')
-        domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
+        # Try to get customDomains - check if the array exists and has elements
+        custom_domains_list = bashio_instance.config._get_value(f'proxies/{proxy_index}/customDomains')
+        domain = None
+        if custom_domains_list and isinstance(custom_domains_list, list) and len(custom_domains_list) > 0:
+            # Get first non-empty domain from the list
+            for d in custom_domains_list:
+                if d and str(d).strip():
+                    domain = str(d).strip()
+                    break
+        else:
+            # Fallback to old method for compatibility
+            domain_val = bashio_instance.config._get_value(f'proxies/{proxy_index}/customDomains/0')
+            if domain_val and str(domain_val).strip():
+                domain = str(domain_val).strip()
 
         # Ensure at least one is set - use proxy name as subdomain fallback
         if not subdomain and not domain:
@@ -237,7 +250,8 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
         else:
             proxy_content = delete_line_in_file_content(proxy_content, '__SUBDOMAIN_LINE__')
 
-        if domain:
+        # Only add customDomains if domain is actually set
+        if domain and domain.strip():
             proxy_content = proxy_content.replace('__CUSTOMDOMAINS_LINE__', f'customDomains = ["{domain}"]')
         else:
             proxy_content = delete_line_in_file_content(proxy_content, '__CUSTOMDOMAINS_LINE__')
