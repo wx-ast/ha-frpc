@@ -64,8 +64,9 @@ schema:
       type: match(http|https|tcp|udp)
       localIP: str
       localPort: port
-      remotePort: port?
-      subdomain: str?
-      customDomains: [str]?
+      remotePort: port
+      subdomain: str
+      customDomains:
+        - str
       useEncryption: bool
       useCompression: bool
