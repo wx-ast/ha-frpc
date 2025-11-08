@@ -240,10 +240,13 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
             if domain_val and str(domain_val).strip():
                 domain = str(domain_val).strip()
 
-        # Ensure at least one is set - use proxy name as subdomain fallback
+        # Require at least one to be set - don't auto-add subdomain
         if not subdomain and not domain:
             proxy_name = bashio_instance.config(f'proxies/{proxy_index}/name')
-            subdomain = proxy_name
+            raise ValueError(
+                f'Proxy "{proxy_name}" (type: {proxy_type}) requires either "subdomain" or "customDomains" to be specified. '
+                f'Please configure one of these options in your addon configuration.'
+            )
 
         if subdomain:
             proxy_content = proxy_content.replace('__SUBDOMAIN_LINE__', f'subdomain = "{subdomain}"')
@@ -332,8 +335,13 @@ def generate_config(config_src, config_dst, bashio_instance=None):
             proxy_config = generate_proxy_config(proxy_template_path, proxy_index, bashio_instance)
             append_to_file(config_dst, proxy_config)
             proxy_index += 1
-    except ValueError:
-        # No more proxies found, continue
+    except ValueError as e:
+        # Check if this is a configuration error (should be re-raised)
+        error_msg = str(e)
+        if 'requires either "subdomain" or "customDomains"' in error_msg:
+            # This is a configuration error, re-raise it
+            raise
+        # Otherwise, it's "proxy not found" error, continue
         pass
 
 

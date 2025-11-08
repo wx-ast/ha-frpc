@@ -304,7 +304,7 @@ def test_proxy_config_type_conversion(template_path, temp_config_file):
 
 
 def test_https_proxy_without_custom_domains_uses_subdomain(template_path, temp_config_file):
-    """Test that HTTPS proxy without customDomains uses proxy name as subdomain."""
+    """Test that HTTPS proxy without customDomains and subdomain raises error."""
     config_dict = {
         'serverAddr': 'example.com',
         'serverPort': 7000,
@@ -324,17 +324,43 @@ def test_https_proxy_without_custom_domains_uses_subdomain(template_path, temp_c
     }
 
     mock_bashio = MockBashio(config_dict)
+
+    # Should raise ValueError because neither subdomain nor customDomains is specified
+    with pytest.raises(ValueError, match='requires either "subdomain" or "customDomains"'):
+        generate_config(str(template_path), temp_config_file, mock_bashio)
+
+
+def test_https_proxy_with_custom_domains_only(template_path, temp_config_file):
+    """Test HTTPS proxy with only customDomains (no subdomain)."""
+    config_dict = {
+        'serverAddr': 'example.com',
+        'serverPort': 7000,
+        'authMethod': 'token',
+        'authToken': 'test-token',
+        'tlsEnable': False,
+        'proxies': [
+            {
+                'name': 'web',
+                'type': 'https',
+                'localIP': '127.0.0.1',
+                'localPort': 8123,
+                'customDomains': ['home.example.com'],
+                'useEncryption': False,
+                'useCompression': False,
+            }
+        ],
+    }
+
+    mock_bashio = MockBashio(config_dict)
     generate_config(str(template_path), temp_config_file, mock_bashio)
 
     with open(temp_config_file, 'r') as f:
         config_content = f.read()
 
-    # Should have subdomain = "web" (proxy name) as fallback
-    assert 'subdomain = "web"' in config_content
-    # Should not have remotePort for HTTPS proxy
+    # Should have customDomains but not subdomain
+    assert 'customDomains = ["home.example.com"]' in config_content
+    assert 'subdomain' not in config_content
     assert 'remotePort' not in config_content
-    # Should not have customDomains if not specified
-    assert 'customDomains' not in config_content
 
 
 def test_https_proxy_with_subdomain(template_path, temp_config_file):
