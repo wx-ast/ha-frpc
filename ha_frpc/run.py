@@ -250,6 +250,8 @@ def generate_config(config_src, config_dst, bashio_instance=None):
 
     auth_token = bashio_instance.config.require('authToken')
     replace_line_in_file(config_dst, '__AUTHTOKEN_LINE__', f'auth.token = "{auth_token}"')
+    # Remove old auth.token line with placeholder if it exists
+    delete_line_in_file(config_dst, '__AUTHTOKEN__')
 
     # TLS settings
     if bashio_instance.config.true('tlsEnable'):
@@ -300,15 +302,37 @@ def main():
             print(f.read())
 
         bashio.log.info('Starting FRPC client...')
-        frpc_process = subprocess.Popen(['/usr/bin/frpc', '-c', CONFIG_DST])
+        # Ensure log file exists before tailing
+        log_file = '/share/frpc.log'
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        if not os.path.exists(log_file):
+            open(log_file, 'a').close()
+
+        # Start FRPC with stderr redirected to log file
+        with open(log_file, 'a') as log_f:
+            frpc_process = subprocess.Popen(['/usr/bin/frpc', '-c', CONFIG_DST], stdout=log_f, stderr=subprocess.STDOUT)
         FRPC_PID = frpc_process.pid
 
         bashio.log.info('Tailing logs...')
-        tail_process = subprocess.Popen(['tail', '-F', '/share/frpc.log'])
+        # Use tail with retry option or check if file exists
+        tail_process = subprocess.Popen(['tail', '-F', log_file])
         TAIL_PID = tail_process.pid
 
         # Wait for FRPC process to finish
-        frpc_process.wait()
+        return_code = frpc_process.wait()
+        if return_code != 0:
+            bashio.log.info(f'FRPC exited with code {return_code}')
+            # Read last lines from log file for debugging
+            try:
+                with open(log_file, 'r') as f:
+                    lines = f.readlines()
+                    if lines:
+                        bashio.log.info('Last log lines:')
+                        for line in lines[-10:]:
+                            bashio.log.info(line.strip())
+            except Exception:
+                pass
+            sys.exit(return_code)
     except KeyboardInterrupt:
         signal_handler(signal.SIGTERM, None)
     except Exception as e:
