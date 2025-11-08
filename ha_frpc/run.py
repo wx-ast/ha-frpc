@@ -10,142 +10,102 @@ import signal
 import subprocess
 import sys
 
-try:
-    import bashio
-    import json
+import json
 
-    # Helper function to read from options.json with nested key support
-    def read_from_options_json(key):
-        """Read configuration value from /data/options.json with support for nested keys."""
-        options_file = '/data/options.json'
-        if not os.path.exists(options_file):
-            return None
 
-        with open(options_file, 'r') as f:
-            options = json.load(f)
+# Simple config reader that reads directly from options.json
+class ConfigReader:
+    """Read configuration directly from /data/options.json."""
 
-        # Handle nested keys like 'proxies/0/name'
+    def __init__(self, options_file='/data/options.json'):
+        self.options_file = options_file
+        self._options = None
+        self._load_options()
+
+    def _load_options(self):
+        """Load options from JSON file."""
+        if os.path.exists(self.options_file):
+            try:
+                with open(self.options_file, 'r') as f:
+                    self._options = json.load(f)
+            except Exception as e:
+                self._options = {}
+        else:
+            self._options = {}
+
+    def _get_value(self, key, default=None):
+        """Get value from options with support for nested keys like 'proxies/0/name'."""
+        if not self._options:
+            return default
+
         if '/' in key:
             parts = key.split('/')
-            val = options
+            val = self._options
             for part in parts:
                 if part.isdigit():
                     if isinstance(val, list) and int(part) < len(val):
                         val = val[int(part)]
                     else:
-                        return None
+                        return default
                 else:
                     if isinstance(val, dict):
                         val = val.get(part)
                     else:
-                        return None
+                        return default
                 if val is None:
-                    return None
+                    return default
             return val
         else:
-            return options.get(key)
+            return self._options.get(key, default)
 
-    # Wrap bashio.config to add fallback support
-    original_config = bashio.config
+    def require(self, key):
+        """Get required config value, raise error if not found."""
+        val = self._get_value(key)
+        if val is None or val == '' or val == []:
+            raise ValueError(f"Required config key '{key}' not found")
+        return val
 
-    # Create wrapper function for bashio.config()
-    def config_with_fallback(key, default=''):
-        # First try original bashio.config
-        try:
-            if callable(original_config):
-                val = original_config(key)
-            else:
-                val = original_config(key) if hasattr(original_config, '__call__') else None
-            # Check if value is not empty
-            if val is not None and val != '' and val != []:
-                return val
-        except Exception:
-            pass
-
-        # Fallback: try to read from options.json
-        val = read_from_options_json(key)
+    def __call__(self, key, default=''):
+        """Get optional config value."""
+        val = self._get_value(key)
         return val if (val is not None and val != '' and val != []) else default
 
-    # Check if bashio.config has require method, if not, create a wrapper
-    if not hasattr(bashio.config, 'require'):
-
-        def require_wrapper(key):
-            # First try bashio.config
-            val = config_with_fallback(key)
-            # Check if value is empty
-            if val is None or val == '' or val == []:
-                # Fallback: try to read from options.json directly
-                val = read_from_options_json(key)
-                if val is None or val == '' or val == []:
-                    raise ValueError(f"Required config key '{key}' not found")
+    def true(self, key):
+        """Check if config value is true."""
+        val = self._get_value(key)
+        if isinstance(val, bool):
             return val
+        if isinstance(val, str):
+            return val.lower() in ('true', '1', 'yes')
+        return bool(val)
 
-        bashio.config.require = require_wrapper
 
-    # Wrap bashio.config() to add fallback for optional values
-    if callable(bashio.config):
-        original_config_call = bashio.config
+# Try to use bashio.log if available, otherwise use print
+try:
+    import bashio
 
-        # Create a wrapper that preserves methods
-        class ConfigWrapper:
-            def __init__(self, original):
-                self._original = original
-                original_require = getattr(original, 'require', None)
-                original_true = getattr(original, 'true', None)
-
-                if original_require:
-                    self.require = original_require
-                else:
-                    self.require = require_wrapper
-
-                if original_true:
-                    self.true = original_true
-                else:
-
-                    def true_method(key):
-                        val = config_with_fallback(key)
-                        if isinstance(val, bool):
-                            return val
-                        if isinstance(val, str):
-                            return val.lower() in ('true', '1', 'yes')
-                        return bool(val)
-
-                    self.true = true_method
-
-            def __call__(self, key, default=''):
-                return config_with_fallback(key, default)
-
-        bashio.config = ConfigWrapper(bashio.config)
-
+    log = bashio.log
 except ImportError:
-    # Fallback for local testing
-    class BashioMock:
-        class Log:
-            @staticmethod
-            def info(msg):
-                print(f'[INFO] {msg}')
 
-        class Config:
-            @staticmethod
-            def require(key):
-                val = os.environ.get(key.upper().replace('/', '_'))
-                if not val:
-                    raise ValueError(f"Required config key '{key}' not found")
-                return val
+    class Log:
+        @staticmethod
+        def info(msg):
+            print(f'[INFO] {msg}')
 
-            @staticmethod
-            def __call__(key):
-                return os.environ.get(key.upper().replace('/', '_'), '')
+    log = Log()
 
-            @staticmethod
-            def true(key):
-                val = os.environ.get(key.upper().replace('/', '_'), 'false')
-                return val.lower() in ('true', '1', 'yes')
+# Create config instance
+config = ConfigReader()
 
-        log = Log()
-        config = Config()
 
-    bashio = BashioMock()
+# Create bashio-like interface for compatibility
+class BashioCompat:
+    def __init__(self):
+        self.log = log
+        self.config = config
+
+
+bashio = BashioCompat()
 
 
 CONFIG_SRC = '/defaults/frpc_template.toml'
@@ -327,19 +287,6 @@ def main():
         signal.signal(signal.SIGHUP, signal_handler)
 
         bashio.log.info('Preparing configuration...')
-
-        # Debug: Check if bashio is working and can read config
-        options_file = '/data/options.json'
-        if os.path.exists(options_file):
-            import json
-
-            with open(options_file, 'r') as f:
-                options = json.load(f)
-                bashio.log.info(f'Debug: options.json keys: {list(options.keys())}')
-                bashio.log.info(f'Debug: serverAddr in options: {"serverAddr" in options}')
-                if 'serverAddr' in options:
-                    bashio.log.info(f'Debug: serverAddr value: {options["serverAddr"]}')
-
         generate_config(CONFIG_SRC, CONFIG_DST)
 
         bashio.log.info('Configuration:')
