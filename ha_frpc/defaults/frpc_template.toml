@@ -4,8 +4,6 @@ transport.protocol = "quic"
 
 auth.method = "__AUTHMETHOD__"
 __AUTHTOKEN_LINE__
-
-tlsEnable = __TLSENABLE__
 __TLSCERT_LINE__
 __TLSKEY_LINE__
 __TLSCA_LINE__

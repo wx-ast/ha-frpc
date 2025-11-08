@@ -192,6 +192,12 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
 
     # For HTTP/HTTPS proxies, remotePort is not used (use customDomains/subdomain instead)
     # For TCP/UDP proxies, remotePort is required
+    # Remove remotePort line BEFORE replacing placeholders for HTTP/HTTPS proxies
+    if proxy_type in ('http', 'https'):
+        lines = proxy_content.split('\n')
+        new_lines = [line for line in lines if 'remotePort' not in line]
+        proxy_content = '\n'.join(new_lines)
+
     proxy_keys = ['name', 'type', 'localIP', 'localPort', 'useEncryption', 'useCompression']
     if proxy_type not in ('http', 'https'):
         proxy_keys.append('remotePort')
@@ -206,12 +212,6 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
         else:
             val_str = str(val)
         proxy_content = proxy_content.replace(placeholder, val_str)
-
-    # Remove remotePort line for HTTP/HTTPS proxies
-    if proxy_type in ('http', 'https'):
-        lines = proxy_content.split('\n')
-        new_lines = [line for line in lines if 'remotePort' not in line]
-        proxy_content = '\n'.join(new_lines)
 
     # Custom domains (optional)
     domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
@@ -265,20 +265,22 @@ def generate_config(config_src, config_dst, bashio_instance=None):
     # Remove old auth.token line with placeholder if it exists
     delete_line_in_file(config_dst, '__AUTHTOKEN__')
 
-    # TLS settings
+    # TLS settings (only add TLS config if enabled)
     if bashio_instance.config.true('tlsEnable'):
-        replace_in_file(config_dst, '__TLSENABLE__', 'true')
-
         tls_cert_file = bashio_instance.config('tlsCertFile')
-        replace_line_in_file(config_dst, '__TLSCERT_LINE__', f'\ttls.certFile = "{tls_cert_file}"')
+        if tls_cert_file:
+            replace_line_in_file(config_dst, '__TLSCERT_LINE__', f'\ttls.certFile = "{tls_cert_file}"')
 
         tls_key_file = bashio_instance.config('tlsKeyFile')
-        replace_line_in_file(config_dst, '__TLSKEY_LINE__', f'\ttls.keyFile = "{tls_key_file}"')
+        if tls_key_file:
+            replace_line_in_file(config_dst, '__TLSKEY_LINE__', f'\ttls.keyFile = "{tls_key_file}"')
 
         tls_ca_file = bashio_instance.config('tlsCaFile')
-        replace_line_in_file(config_dst, '__TLSCA_LINE__', f'\ttls.trustedCaFile = "{tls_ca_file}"')
-    else:
-        replace_in_file(config_dst, '__TLSENABLE__', 'false')
+        if tls_ca_file:
+            replace_line_in_file(config_dst, '__TLSCA_LINE__', f'\ttls.trustedCaFile = "{tls_ca_file}"')
+
+    # Remove TLS placeholder lines if TLS is disabled or not configured
+    if not bashio_instance.config.true('tlsEnable'):
         delete_line_in_file(config_dst, '__TLSCERT_LINE__')
         delete_line_in_file(config_dst, '__TLSKEY_LINE__')
         delete_line_in_file(config_dst, '__TLSCA_LINE__')
