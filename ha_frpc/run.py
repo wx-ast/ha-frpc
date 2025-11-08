@@ -188,7 +188,13 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
 
     # Get proxy configuration values
     bashio_instance.config.require(f'proxies/{proxy_index}/name')
-    proxy_keys = ['name', 'type', 'localIP', 'localPort', 'remotePort', 'useEncryption', 'useCompression']
+    proxy_type = bashio_instance.config(f'proxies/{proxy_index}/type', '').lower()
+
+    # For HTTP/HTTPS proxies, remotePort is not used (use customDomains/subdomain instead)
+    # For TCP/UDP proxies, remotePort is required
+    proxy_keys = ['name', 'type', 'localIP', 'localPort', 'useEncryption', 'useCompression']
+    if proxy_type not in ('http', 'https'):
+        proxy_keys.append('remotePort')
 
     # Replace placeholders
     for key in proxy_keys:
@@ -200,6 +206,12 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
         else:
             val_str = str(val)
         proxy_content = proxy_content.replace(placeholder, val_str)
+
+    # Remove remotePort line for HTTP/HTTPS proxies
+    if proxy_type in ('http', 'https'):
+        lines = proxy_content.split('\n')
+        new_lines = [line for line in lines if 'remotePort' not in line]
+        proxy_content = '\n'.join(new_lines)
 
     # Custom domains (optional)
     domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
