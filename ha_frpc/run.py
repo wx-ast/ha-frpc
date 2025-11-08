@@ -137,7 +137,8 @@ def replace_in_file(filepath, old, new):
     """Replace string in file."""
     with open(filepath, 'r') as f:
         content = f.read()
-    content = content.replace(old, new)
+    # Convert new to string in case it's a number or other type
+    content = content.replace(old, str(new))
     with open(filepath, 'w') as f:
         f.write(content)
 
@@ -193,7 +194,12 @@ def generate_proxy_config(proxy_template_src, proxy_index, bashio_instance):
     for key in proxy_keys:
         val = bashio_instance.config(f'proxies/{proxy_index}/{key}')
         placeholder = f'__{key.upper()}__'
-        proxy_content = proxy_content.replace(placeholder, str(val))
+        # Convert value to string, handling booleans specially
+        if isinstance(val, bool):
+            val_str = 'true' if val else 'false'
+        else:
+            val_str = str(val)
+        proxy_content = proxy_content.replace(placeholder, val_str)
 
     # Custom domains (optional)
     domain = bashio_instance.config(f'proxies/{proxy_index}/customDomains/0')
