@@ -6,4 +6,4 @@ build_from:
   i386:   homeassistant/i386-base:3.10
 
 args:
-  FRP_VERSION: "0.62.1"
+  FRP_VERSION: "0.65.0"

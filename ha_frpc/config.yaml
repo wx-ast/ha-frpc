@@ -64,7 +64,5 @@ schema:
       localIP: str
       localPort: port
       remotePort: port
-      customDomains:
-        - str
       useEncryption: bool
       useCompression: bool

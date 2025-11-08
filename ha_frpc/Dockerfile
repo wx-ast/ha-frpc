@@ -2,10 +2,10 @@ ARG BUILD_FROM
 FROM $BUILD_FROM
 
 # FRP version argument
-ARG FRP_VERSION=0.62.1
+ARG FRP_VERSION=0.65.0
 
 # Install dependencies
-RUN apk add --no-cache curl tar \
+RUN apk add --no-cache curl tar python3 \
     && arch="$(apk --print-arch)" \
     && case "$arch" in \
         x86_64) machine="amd64" ;; \
@@ -21,7 +21,7 @@ RUN apk add --no-cache curl tar \
 COPY defaults/ /defaults/
 
 # Copy run script
-COPY run.sh /run.sh
-RUN chmod a+x /run.sh
+COPY run.py /run.py
+RUN chmod a+x /run.py
 
-CMD ["/run.sh"]
+CMD ["/run.py"]
