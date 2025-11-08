@@ -44,6 +44,7 @@ options:
       localIP: "127.0.0.1"
       localPort: 8123
       remotePort: 8123
+      subdomain: "home"
       customDomains:
         - "home.silkslime.ru"
       useEncryption: true
@@ -60,9 +61,11 @@ schema:
   tlsCaFile: str
   proxies:
     - name: str
-      type: match(http|tcp|udp)
+      type: match(http|https|tcp|udp)
       localIP: str
       localPort: port
-      remotePort: port
+      remotePort: port?
+      subdomain: str?
+      customDomains: [str]?
       useEncryption: bool
       useCompression: bool
